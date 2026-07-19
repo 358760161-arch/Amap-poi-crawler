@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>高德地图 POI 爬虫网页工具</title>
+  <link rel="stylesheet" href="./styles.css">
+  <script src="https://webapi.amap.com/loader.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <strong>高德 POI 区域采集</strong>
+        <span>GCJ-02 · 本地单页原型</span>
+      </div>
+
+      <label class="field api-field">
+        <span>JS API Key</span>
+        <input id="apiKeyInput" type="password" autocomplete="off" placeholder="Web端 JS API Key">
+      </label>
+
+      <label class="field api-field">
+        <span>securityJsCode</span>
+        <input id="securityCodeInput" type="password" autocomplete="off" placeholder="安全密钥">
+      </label>
+
+      <label class="field city-field">
+        <span>城市</span>
+        <input id="cityInput" type="text" placeholder="北京" value="北京">
+      </label>
+
+      <label class="city-limit-toggle" title="勾选后 POI 查询会强制限制在城市字段内">
+        <input id="cityLimitInput" type="checkbox">
+        <span>限制城市</span>
+      </label>
+
+      <label class="field search-field">
+        <span>地图搜索</span>
+        <div class="inline-field">
+          <input id="centerSearchInput" type="text" placeholder="天安门 / 西湖 / 公司地址">
+          <button id="searchCenterBtn" class="icon-btn" type="button" title="搜索并移动地图">⌕</button>
+        </div>
+      </label>
+
+      <button id="initMapBtn" class="primary-btn" type="button">初始化地图</button>
+    </header>
+
+    <main class="workspace">
+      <aside class="panel controls-panel">
+        <section class="panel-section">
+          <h2>区域</h2>
+          <div class="button-grid">
+            <button id="drawPolygonBtn" type="button" disabled>绘制多边形</button>
+            <button id="editPolygonBtn" type="button" disabled>编辑边界</button>
+            <button id="closeEditorBtn" type="button" disabled>结束编辑</button>
+            <button id="clearPolygonBtn" type="button" disabled>清空区域</button>
+          </div>
+          <p class="hint">单击添加顶点，双击结束绘制。生产环境建议改用 serviceHost 后端代理保护安全密钥。</p>
+        </section>
+
+        <section class="panel-section">
+          <h2>POI 类型</h2>
+          <div id="poiTypeList" class="type-list"></div>
+        </section>
+
+        <section class="panel-section">
+          <h2>关键词</h2>
+          <textarea id="keywordInput" rows="3" placeholder="咖啡&#10;便利店&#10;充电站"></textarea>
+          <p class="hint">每行或用逗号分隔一个关键词，可与类型一起作为独立任务查询。</p>
+        </section>
+
+        <section class="panel-section two-col">
+          <label class="field">
+            <span>每页数量</span>
+            <input id="pageSizeInput" type="number" min="1" max="50" value="25">
+          </label>
+          <label class="field">
+            <span>最大页数</span>
+            <input id="maxPagesInput" type="number" min="1" max="100" value="20">
+          </label>
+          <label class="field">
+            <span>请求间隔(ms)</span>
+            <input id="delayInput" type="number" min="0" max="5000" step="50" value="500">
+          </label>
+          <label class="field">
+            <span>坐标系</span>
+            <select id="coordSystemSelect">
+              <option value="GCJ-02">GCJ-02</option>
+              <option value="WGS84" disabled>WGS84（预留）</option>
+            </select>
+          </label>
+        </section>
+
+        <section class="panel-section">
+          <div class="button-grid">
+            <button id="startSearchBtn" class="primary-btn" type="button" disabled>开始查询</button>
+            <button id="stopSearchBtn" type="button" disabled>停止</button>
+            <button id="exportExcelBtn" type="button" disabled>导出 Excel</button>
+            <button id="exportGeoJsonBtn" type="button" disabled>导出 GeoJSON</button>
+          </div>
+        </section>
+      </aside>
+
+      <section class="map-stage">
+        <div id="mapContainer" class="map-container">
+          <div class="map-placeholder">
+            <strong>等待初始化地图</strong>
+            <span>填入高德 Web端 JS API Key 与 securityJsCode 后开始。</span>
+          </div>
+        </div>
+        <div class="status-strip">
+          <span id="mapStatus">地图未初始化</span>
+          <span id="polygonStatus">未绘制区域</span>
+          <span id="queryStatus">未开始查询</span>
+        </div>
+      </section>
+
+      <aside class="panel results-panel">
+        <section class="metrics">
+          <div>
+            <span>成功</span>
+            <strong id="successCount">0</strong>
+          </div>
+          <div>
+            <span>失败</span>
+            <strong id="failCount">0</strong>
+          </div>
+          <div>
+            <span>去重后</span>
+            <strong id="dedupeCount">0</strong>
+          </div>
+          <div>
+            <span>任务</span>
+            <strong id="taskCount">0/0</strong>
+          </div>
+        </section>
+
+        <section class="progress-block">
+          <div class="progress-bar"><span id="progressBar"></span></div>
+          <p id="progressText">暂无任务</p>
+        </section>
+
+        <section class="results-section">
+          <div class="section-head">
+            <h2>结果预览</h2>
+            <input id="resultFilterInput" type="search" placeholder="筛选名称 / 地址 / 类型">
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>名称</th>
+                  <th>类型</th>
+                  <th>地址</th>
+                  <th>经度</th>
+                  <th>纬度</th>
+                  <th>来源</th>
+                </tr>
+              </thead>
+              <tbody id="resultTableBody">
+                <tr><td colspan="6" class="empty-cell">暂无数据</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="log-section">
+          <div class="section-head">
+            <h2>日志</h2>
+            <button id="clearLogBtn" class="text-btn" type="button">清空</button>
+          </div>
+          <div id="logPanel" class="log-panel"></div>
+        </section>
+      </aside>
+    </main>
+  </div>
+
+  <script src="./app.js"></script>
+</body>
+</html>
